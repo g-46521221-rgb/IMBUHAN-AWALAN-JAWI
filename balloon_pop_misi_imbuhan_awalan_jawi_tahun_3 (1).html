@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="ms" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>BALLOON POP: MISI IMBUHAN AWALAN JAWI TAHUN 3</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts for Arabic / Jawi -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@700&family=Cairo:wght@600;800;900&family=Fredoka:wght@500;600;700&family=Noto+Naskh+Arabic:wght@600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- MediaPipe Hands & Camera Utils for Gesture Recognition -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        body {
+            font-family: 'Fredoka', 'Cairo', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+            overflow: hidden;
+            background: linear-gradient(180deg, #38bdf8 0%, #7dd3fc 60%, #bae6fd 100%);
+        }
+        .jawi-text {
+            font-family: 'Noto Naskh Arabic', 'Amiri', serif;
+            direction: rtl;
+            unicode-bidi: isolate;
+        }
+        /* Custom Balloon & Float Animations */
+        @keyframes floatSlow {
+            0% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-18px) rotate(3deg); }
+            100% { transform: translateY(0px) rotate(0deg); }
+        }
+        .animate-float {
+            animation: floatSlow 3.5s ease-in-out infinite;
+        }
+        @keyframes cloudMove {
+            0% { transform: translateX(-10%); }
+            100% { transform: translateX(110vw); }
+        }
+        .cloud {
+            position: absolute;
+            animation: cloudMove linear infinite;
+            opacity: 0.85;
+            pointer-events: none;
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-12px); }
+            40%, 80% { transform: translateX(12px); }
+        }
+        .shake-effect {
+            animation: shake 0.4s ease-in-out;
+        }
+        /* Slash FX Canvas Layer */
+        #fxCanvas, #webcamCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        #webcamCanvas {
+            z-index: 25;
+        }
+        #fxCanvas {
+            z-index: 30;
+        }
+        /* Pulse for Timer Warning */
+        @keyframes pulseRed {
+            0%, 100% { color: #ef4444; transform: scale(1); }
+            50% { color: #dc2626; transform: scale(1.15); }
+        }
+        .timer-warning {
+            animation: pulseRed 0.6s infinite;
+        }
+        /* Balloon 3D depth effect */
+        .balloon-btn {
+            transition: transform 0.15s ease, filter 0.15s ease;
+            filter: drop-shadow(0px 10px 12px rgba(0, 0, 0, 0.25));
+        }
+        .balloon-btn:hover {
+            transform: scale(1.06) translateY(-5px);
+            filter: drop-shadow(0px 15px 18px rgba(0, 0, 0, 0.3));
+        }
+        .balloon-btn:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body class="h-screen w-screen relative flex flex-col justify-between items-center select-none overflow-hidden text-slate-800">
+
+    <!-- Background Clouds -->
+    <div id="cloudsContainer" class="absolute inset-0 overflow-hidden pointer-events-none z-0">
+        <div class="cloud text-white/80 text-7xl" style="top: 8%; animation-duration: 38s; animation-delay: -5s;"><i class="fa-solid fa-cloud"></i></div>
+        <div class="cloud text-white/70 text-9xl" style="top: 22%; animation-duration: 52s; animation-delay: -20s;"><i class="fa-solid fa-cloud"></i></div>
+        <div class="cloud text-white/90 text-6xl" style="top: 45%; animation-duration: 32s; animation-delay: -12s;"><i class="fa-solid fa-cloud"></i></div>
+        <!-- Rainbow Vector Background -->
+        <div class="absolute -bottom-20 -left-20 w-96 h-96 rounded-full border-[30px] border-red-400/30 border-t-yellow-300/30 border-r-green-400/30 pointer-events-none"></div>
+    </div>
+
+    <!-- Canvases for Camera Cursor, Slash FX and Confetti -->
+    <canvas id="webcamCanvas"></canvas>
+    <canvas id="fxCanvas"></canvas>
+
+    <!-- TOP HEADER / GAME STATS BAR -->
+    <header class="w-full max-w-5xl px-4 py-3 mt-2 z-20 flex justify-between items-center gap-2">
+        <!-- Score Box -->
+        <div class="bg-white/90 backdrop-blur border-4 border-yellow-400 rounded-2xl px-4 py-2 shadow-lg flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-yellow-400 flex items-center justify-center text-white text-xl shadow">
+                <i class="fa-solid fa-star"></i>
+            </div>
+            <div>
+                <div class="text-xs uppercase tracking-wider text-slate-500 font-bold">Markah</div>
+                <div id="scoreTxt" class="text-2xl font-black text-amber-600">0</div>
+            </div>
+        </div>
+
+        <!-- Timer Center Box -->
+        <div class="bg-white/90 backdrop-blur border-4 border-sky-400 rounded-2xl px-6 py-2 shadow-lg flex items-center gap-3">
+            <i class="fa-solid fa-stopwatch text-2xl text-sky-500"></i>
+            <div id="timerTxt" class="text-3xl font-black text-slate-700 tracking-wider">02:00</div>
+        </div>
+
+        <!-- Lives & Mute Controls -->
+        <div class="flex items-center gap-2">
+            <div class="bg-white/90 backdrop-blur border-4 border-rose-400 rounded-2xl px-4 py-2 shadow-lg flex items-center gap-2">
+                <span id="livesContainer" class="text-2xl tracking-widest">❤️❤️❤️</span>
+            </div>
+            <!-- Audio Toggle -->
+            <button id="audioBtn" onclick="toggleAudio()" class="bg-white/90 border-4 border-purple-400 hover:bg-purple-50 text-purple-600 rounded-2xl p-3 shadow-lg text-xl transition">
+                <i id="audioIcon" class="fa-solid fa-volume-high"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN INTERACTIVE CONTAINER -->
+    <main class="w-full max-w-4xl flex-1 flex flex-col justify-between items-center px-4 py-2 z-10 relative">
+
+        <!-- Question Box Card -->
+        <div id="questionCard" class="w-full bg-white/95 backdrop-blur border-4 border-amber-300 rounded-3xl p-5 shadow-2xl text-center transform transition duration-300 hover:scale-[1.01]">
+            <div class="flex justify-between items-center mb-1">
+                <span id="progressTxt" class="bg-amber-100 text-amber-800 text-xs font-bold px-3 py-1 rounded-full border border-amber-300">Soalan 1/10</span>
+                <span id="instructionsRumi" class="text-slate-500 text-xs font-semibold">Pilih Imbuhan Awalan Yang Betul</span>
+            </div>
+            <p id="instructionJawi" class="jawi-text text-xl md:text-2xl text-purple-800 font-bold mb-2">ڤيليه ڤركاتاءن يڠ مڠاندوڠي ايمبوهان اولن يڠ بتول.</p>
+            <div class="inline-block bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-2xl px-8 py-3 shadow-inner my-1">
+                <span class="text-sm block text-indigo-200 uppercase tracking-widest mb-1">Perkataan Asal</span>
+                <span id="rootWordJawi" class="jawi-text text-4xl md:text-5xl font-extrabold tracking-wide">ساڤو</span>
+            </div>
+        </div>
+
+        <!-- Feedback Overlay Toast -->
+        <div id="feedbackToast" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-40 hidden pointer-events-none">
+            <div id="feedbackBox" class="px-8 py-4 rounded-3xl shadow-2xl border-4 text-center transform scale-100 transition duration-200">
+                <div id="feedbackJawi" class="jawi-text text-4xl font-black mb-1">ساڤوان</div>
+                <div id="feedbackRumi" class="text-lg font-bold">Jawapan Betul! +10</div>
+            </div>
+        </div>
+
+        <!-- BALLOONS GRID AREA -->
+        <div id="balloonsGrid" class="w-full grid grid-cols-3 gap-3 md:gap-8 my-auto pt-4 pb-8">
+            <!-- Balloon 1 -->
+            <div class="flex justify-center items-center">
+                <button onclick="popBalloon(0)" id="balloon0" class="balloon-btn animate-float relative group focus:outline-none" style="animation-delay: 0s;">
+                    <svg class="w-32 h-44 md:w-44 md:h-60" viewBox="0 0 200 260" fill="none">
+                        <path id="bSvg0" d="M100 10 C 160 10, 190 60, 190 120 C 190 180, 140 220, 100 220 C 60 220, 10 180, 10 120 C 10 60, 40 10, 100 10 Z" fill="#ef4444"/>
+                        <polygon points="100,218 90,230 110,230" fill="#dc2626"/>
+                        <path d="M100 230 Q 90 245 100 260" stroke="#cbd5e1" stroke-width="4" fill="none"/>
+                        <ellipse cx="65" cy="65" rx="18" ry="30" fill="white" fill-opacity="0.35" transform="rotate(-30 65 65)"/>
+                    </svg>
+                    <span id="label0" class="jawi-text absolute inset-0 top-[-20px] flex items-center justify-center text-2xl md:text-4xl font-extrabold text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] px-4 text-center">مڽاڤو</span>
+                </button>
+            </div>
+            <!-- Balloon 2 -->
+            <div class="flex justify-center items-center">
+                <button onclick="popBalloon(1)" id="balloon1" class="balloon-btn animate-float relative group focus:outline-none" style="animation-delay: -1.2s;">
+                    <svg class="w-32 h-44 md:w-44 md:h-60" viewBox="0 0 200 260" fill="none">
+                        <path id="bSvg1" d="M100 10 C 160 10, 190 60, 190 120 C 190 180, 140 220, 100 220 C 60 220, 10 180, 10 120 C 10 60, 40 10, 100 10 Z" fill="#3b82f6"/>
+                        <polygon points="100,218 90,230 110,230" fill="#2563eb"/>
+                        <path d="M100 230 Q 110 245 100 260" stroke="#cbd5e1" stroke-width="4" fill="none"/>
+                        <ellipse cx="65" cy="65" rx="18" ry="30" fill="white" fill-opacity="0.35" transform="rotate(-30 65 65)"/>
+                    </svg>
+                    <span id="label1" class="jawi-text absolute inset-0 top-[-20px] flex items-center justify-center text-2xl md:text-4xl font-extrabold text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] px-4 text-center">ڤڽاڤو</span>
+                </button>
+            </div>
+            <!-- Balloon 3 -->
+            <div class="flex justify-center items-center">
+                <button onclick="popBalloon(2)" id="balloon2" class="balloon-btn animate-float relative group focus:outline-none" style="animation-delay: -2.4s;">
+                    <svg class="w-32 h-44 md:w-44 md:h-60" viewBox="0 0 200 260" fill="none">
+                        <path id="bSvg2" d="M100 10 C 160 10, 190 60, 190 120 C 190 180, 140 220, 100 220 C 60 220, 10 180, 10 120 C 10 60, 40 10, 100 10 Z" fill="#eab308"/>
+                        <polygon points="100,218 90,230 110,230" fill="#ca8a04"/>
+                        <path d="M100 230 Q 90 245 100 260" stroke="#cbd5e1" stroke-width="4" fill="none"/>
+                        <ellipse cx="65" cy="65" rx="18" ry="30" fill="white" fill-opacity="0.35" transform="rotate(-30 65 65)"/>
+                    </svg>
+                    <span id="label2" class="jawi-text absolute inset-0 top-[-20px] flex items-center justify-center text-2xl md:text-4xl font-extrabold text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] px-4 text-center">ساڤوان</span>
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <!-- BOTTOM CONTROLS & CAMERA MODE SELECTION -->
+    <footer class="w-full max-w-4xl px-4 mb-3 z-20 flex flex-wrap justify-between items-center gap-2">
+        <div class="flex items-center gap-2">
+            <button id="camToggleBtn" onclick="toggleCameraMode()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2.5 rounded-2xl shadow-lg border-2 border-indigo-400 flex items-center gap-2 transition text-sm">
+                <i class="fa-solid fa-camera"></i>
+                <span id="camBtnTxt">AKTIFKAN KAMERA (MOD JARI)</span>
+            </button>
+            <span id="camStatus" class="text-xs bg-white/80 px-3 py-1.5 rounded-xl text-slate-600 font-semibold hidden md:inline-block">
+                Mod Touch/Tetikus Aktif
+            </span>
+        </div>
+        <div class="text-xs font-bold text-sky-900 bg-white/60 px-3 py-1.5 rounded-xl border border-sky-200">
+            Pendidikan Islam Sekolah Rendah • Tahun 3
+        </div>
+    </footer>
+
+    <!-- Hidden Video Element for MediaPipe Input -->
+    <video id="webcamVideo" class="hidden" playsinline></video>
+
+    <!-- GAME OVER / RESULTS MODAL -->
+    <div id="resultsModal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl border-8 border-yellow-400 p-6 md:p-8 max-w-md w-full shadow-2xl text-center transform scale-95 transition-all duration-300">
+            <div class="w-20 h-20 bg-yellow-100 text-yellow-500 rounded-full flex items-center justify-center mx-auto text-4xl mb-3 border-4 border-yellow-300 shadow">
+                <i class="fa-solid fa-trophy"></i>
+            </div>
+            <h2 id="modalTitle" class="text-3xl font-black text-slate-800 mb-1">TAHNIAH!</h2>
+            <p id="modalReason" class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">Semua Soalan Berjaya Dijawab!</p>
+
+            <!-- Stats Grid -->
+            <div class="grid grid-cols-2 gap-3 mb-4">
+                <div class="bg-amber-50 p-3 rounded-2xl border border-amber-200">
+                    <span class="text-xs text-amber-700 font-bold block">JUMLAH MARKAH</span>
+                    <span id="resScore" class="text-3xl font-black text-amber-600">100</span>
+                </div>
+                <div class="bg-sky-50 p-3 rounded-2xl border border-sky-200">
+                    <span class="text-xs text-sky-700 font-bold block">KETEPATAN</span>
+                    <span id="resAccuracy" class="text-3xl font-black text-sky-600">100%</span>
+                </div>
+                <div class="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200 flex justify-between items-center px-4">
+                    <span class="text-xs font-bold text-emerald-700">Betul</span>
+                    <span id="resCorrect" class="text-lg font-black text-emerald-600">10/10</span>
+                </div>
+                <div class="bg-rose-50 p-2.5 rounded-xl border border-rose-200 flex justify-between items-center px-4">
+                    <span class="text-xs font-bold text-rose-700">Salah</span>
+                    <span id="resWrong" class="text-lg font-black text-rose-600">0</span>
+                </div>
+            </div>
+
+            <p id="modalEncouragement" class="text-sm font-bold text-purple-700 bg-purple-50 p-3 rounded-2xl border border-purple-200 mb-6">
+                Teruskan berusaha dan belajar imbuhan awalan!
+            </p>
+
+            <button onclick="restartGame()" class="w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white font-extrabold py-3.5 px-6 rounded-2xl shadow-lg border-b-4 border-green-800 text-lg transition transform active:scale-95">
+                <i class="fa-solid fa-rotate-right mr-2"></i> MAIN SEMULA
+            </button>
+        </div>
+    </div>
+
+    <script>
+        /* ===================================================================
+           1. QUESTION BANK DATA (10 Questions - Jawi Imbuhan Awalan Tahun 3)
+           =================================================================== */
+        const QUESTION_BANK = [
+            {
+                root: "ساڤو",
+                instructionJawi: "ڤيليه ڤركاتاءن يڠ مڠاندوڠي ايمبوهان اولن يڠ بتول.",
+                instructionRumi: "Pilih Imbuhan Awalan Yang Betul",
+                options: [
+                    { text: "مڽاڤو", correct: true },
+                    { text: "ڤڽاڤو", correct: false },
+                    { text: "ساڤوان", correct: false }
+                ]
+            },
+            {
+                root: "توليس",
+                instructionJawi: "ڤيليه ڤركاتاءن يڠ مڠاندوڠي ايمبوهان اولن يڠ بتول.",
+                instructionRumi: "Pilih Imbuhan Awalan Yang Betul",
+                options: [
+                    { text: "توليسن", correct: false },
+                    { text: "منوليس", correct: true },
+                    { text: "ڤنوليس", correct: false }
+                ]
+            },
+            {
+                root: "باچ",
+                instructionJawi: "ڤيليه ڤركاتاءن يڠ مڠاندوڠي ايمبوهان اولن يڠ بتول.",
+                instructionRumi: "Pilih Imbuhan Awalan Yang Betul",
+                options: [
+                    { text: "ڤمباچ", correct: false },
+                    { text: "باچاءن", correct: false },
+                    { text: "ممباچ", correct: true }
+                ]
+            },
+            {
+                root: "ماسق",
+                instructionJawi: "ڤيليه ڤركاتاءن يڠ مڠاندوڠي ايمبوهان اولن يڠ بتول.",
+                instructionRumi: "Pilih Imbuhan Awalan Yang Betul",
+                options: [
+                    { text: "ماسقن", correct: false },
+                    { text: "مماسق", correct: true },
+                    { text: "ڤماسق", correct: false }
+                ]
+            },
+            {
+                root: "اجر",
+                instructionJawi: "ڤيليه ڤركاتاءن يڠ برمقصود اورڠ يڠ مڠاجر.",
+                instructionRumi: "Maksud: Orang Yang Mengajar",
+                options: [
+                    { text: "مڠاجر", correct: false },
+                    { text: "ڤلاجرن", correct: false },
+                    { text: "ڤڠاجر", correct: true }
+                ]
+            },
+            {
+                root: "ڽاڽي",
+                instructionJawi: "ڤيليه ڤركاتاءن يڠ مڠاندوڠي ايمبوهان اولن يڠ بتول.",
+                instructionRumi: "Pilih Imbuhan Awalan Yang Betul",
+                options: [
+                    { text: "ڽاڽين", correct: false },
+                    { text: "ڤڽاڽي", correct: false },
+                    { text: "مڽاڽي", correct: true }
+                ]
+            },
+            {
+                root: "لوقيس",
+                instructionJawi: "ڤيليه ڤركاتاءن يڠ برمقصود اورڠ يڠ ملوکيس.",
+                instructionRumi: "Maksud: Orang Yang Melukis",
+                options: [
+                    { text: "لوکيسن", correct: false },
+                    { text: "ڤلوکيس", correct: true },
+                    { text: "ملوکيس", correct: false }
+                ]
+            },
+            {
+                root: "برسيه",
+                instructionJawi: "ڤيليه ڤركاتاءن يڠ مڠاندوڠي ايمبوهان اولن يڠ بتول.",
+                instructionRumi: "Pilih Imbuhan Awalan Yang Betul",
+                options: [
+                    { text: "کمبرسيهن", correct: false },
+                    { text: "ممبرسيهکن", correct: true },
+                    { text: "ڤمبرسيه", correct: false }
+                ]
+            },
+            {
+                root: "تولڠ",
+                instructionJawi: "ڤيليه ڤركاتاءن يڠ مڠاندوڠي ايمبوهان اولن يڠ بتول.",
+                instructionRumi: "Pilih Imbuhan Awalan Yang Betul",
+                options: [
+                    { text: "ڤرتولوڠن", correct: false },
+                    { text: "منولوڠ", correct: true },
+                    { text: "ڤنولوڠ", correct: false }
+                ]
+            },
+            {
+                root: "دعا",
+                instructionJawi: "ڤيليه ڤركاتاءن يڠ مڠاندوڠي ايمبوهان اولن يڠ بتول.",
+                instructionRumi: "Pilih Imbuhan Awalan Yang Betul",
+                options: [
+                    { text: "دعا", correct: false },
+                    { text: "مندعاکن", correct: true },
+                    { text: "ڤندعا", correct: false }
+                ]
+            }
+        ];
+
+        // Balloon Color Themes
+        const BALLOON_COLORS = [
+            { fill: "#ef4444", dark: "#dc2626" }, // Red
+            { fill: "#3b82f6", dark: "#2563eb" }, // Blue
+            { fill: "#eab308", dark: "#ca8a04" }, // Yellow
+            { fill: "#22c55e", dark: "#16a34a" }, // Green
+            { fill: "#a855f7", dark: "#9333ea" }, // Purple
+            { fill: "#f97316", dark: "#ea580c" }  // Orange
+        ];
+
+        /* ===================================================================
+           2. GAME STATE VARIABLES
+           =================================================================== */
+        let currentQIndex = 0;
+        let score = 0;
+        let lives = 3;
+        let correctCount = 0;
+        let wrongCount = 0;
+        let timeRemaining = 120; // 2 Minutes
+        let timerInterval = null;
+        let isAudioMuted = false;
+        let isQuestionAnswered = false;
+        let currentOptions = [];
+
+        // Camera Tracking State
+        let camera = null;
+        let hands = null;
+        let isCameraActive = false;
+        let lastPinchTime = 0;
+        let handCursor = { x: -100, y: -100, isPinching: false };
+
+        /* ===================================================================
+           3. WEB AUDIO API SYNTHESIZER
+           =================================================================== */
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        let audioCtx = null;
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new AudioCtx();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function toggleAudio() {
+            isAudioMuted = !isAudioMuted;
+            document.getElementById('audioIcon').className = isAudioMuted ? "fa-solid fa-volume-xmark" : "fa-solid fa-volume-high";
+        }
+
+        function playPopSound() {
+            if (isAudioMuted) return;
+            initAudio();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.12);
+            gain.gain.setValueAtTime(0.8, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.12);
+        }
+
+        function playCorrectSound() {
+            if (isAudioMuted) return;
+            initAudio();
+            const now = audioCtx.currentTime;
+            const freqs = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+            freqs.forEach((f, i) => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(f, now + i * 0.08);
+                gain.gain.setValueAtTime(0.3, now + i * 0.08);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.08 + 0.25);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(now + i * 0.08);
+                osc.stop(now + i * 0.08 + 0.25);
+            });
+        }
+
+        function playWrongSound() {
+            if (isAudioMuted) return;
+            initAudio();
+            const now = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(180, now);
+            osc.frequency.linearRampToValueAtTime(110, now + 0.3);
+            gain.gain.setValueAtTime(0.4, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(now);
+            osc.stop(now + 0.3);
+        }
+
+        function playTickSound() {
+            if (isAudioMuted) return;
+            initAudio();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.04);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.04);
+        }
+
+        function playGameOverSound(isWin) {
+            if (isAudioMuted) return;
+            initAudio();
+            const now = audioCtx.currentTime;
+            const notes = isWin ? [400, 500, 600, 800] : [300, 250, 200, 150];
+            notes.forEach((f, i) => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.frequency.setValueAtTime(f, now + i * 0.15);
+                gain.gain.setValueAtTime(0.3, now + i * 0.15);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.15 + 0.3);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(now + i * 0.15);
+                osc.stop(now + i * 0.15 + 0.3);
+            });
+        }
+
+        /* ===================================================================
+           4. GAME LOGIC & TIMERS
+           =================================================================== */
+        window.onload = function() {
+            setupCanvas();
+            startTimer();
+            loadQuestion(currentQIndex);
+            requestAnimationFrame(renderFX);
+        };
+
+        window.onresize = function() {
+            setupCanvas();
+        };
+
+        function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            timeRemaining = 120;
+            updateTimerDisplay();
+
+            timerInterval = setInterval(() => {
+                timeRemaining--;
+                updateTimerDisplay();
+
+                if (timeRemaining <= 10 && timeRemaining > 0) {
+                    playTickSound();
+                }
+
+                if (timeRemaining <= 0) {
+                    clearInterval(timerInterval);
+                    endGame("Masa Telah Tamat!");
+                }
+            }, 1000);
+        }
+
+        function updateTimerDisplay() {
+            const mins = Math.floor(timeRemaining / 60);
+            const secs = timeRemaining % 60;
+            const timerEl = document.getElementById('timerTxt');
+            timerEl.textContent = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            
+            if (timeRemaining <= 10) {
+                timerEl.classList.add('timer-warning');
+            } else {
+                timerEl.classList.remove('timer-warning');
+            }
+        }
+
+        function loadQuestion(index) {
+            if (index >= QUESTION_BANK.length) {
+                endGame("Tahniah! Semua soalan telah dijawab.");
+                return;
+            }
+
+            isQuestionAnswered = false;
+            const qData = QUESTION_BANK[index];
+
+            document.getElementById('progressTxt').textContent = `Soalan ${index + 1}/${QUESTION_BANK.length}`;
+            document.getElementById('instructionJawi').textContent = qData.instructionJawi;
+            document.getElementById('instructionsRumi').textContent = qData.instructionRumi;
+            document.getElementById('rootWordJawi').textContent = qData.root;
+
+            // Shuffle Options Copy
+            currentOptions = [...qData.options];
+            for (let i = currentOptions.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [currentOptions[i], currentOptions[j]] = [currentOptions[j], currentOptions[i]];
+            }
+
+            // Assign Colors & Text
+            const shuffledColors = [...BALLOON_COLORS].sort(() => 0.5 - Math.random());
+            for (let i = 0; i < 3; i++) {
+                const btn = document.getElementById(`balloon${i}`);
+                const label = document.getElementById(`label${i}`);
+                const svgPath = document.getElementById(`bSvg${i}`);
+
+                btn.style.display = 'block';
+                btn.style.opacity = '1';
+                btn.style.transform = 'scale(1)';
+                label.textContent = currentOptions[i].text;
+                svgPath.setAttribute('fill', shuffledColors[i].fill);
+            }
+
+            document.getElementById('feedbackToast').classList.add('hidden');
+        }
+
+        function popBalloon(optionIndex, event) {
+            if (isQuestionAnswered) return;
+            isQuestionAnswered = true;
+
+            const selected = currentOptions[optionIndex];
+            const btn = document.getElementById(`balloon${optionIndex}`);
+            const rect = btn.getBoundingClientRect();
+            const clickX = rect.left + rect.width / 2;
+            const clickY = rect.top + rect.height / 2;
+
+            // Trigger Slash Line FX
+            createSlashEffect(clickX, clickY);
+            playPopSound();
+
+            // Hide Balloon with explosion particle effect
+            btn.style.opacity = '0';
+            btn.style.transform = 'scale(1.3)';
+            spawnConfetti(clickX, clickY, selected.correct ? 40 : 15);
+
+            const feedbackToast = document.getElementById('feedbackToast');
+            const feedbackBox = document.getElementById('feedbackBox');
+            const feedbackJawi = document.getElementById('feedbackJawi');
+            const feedbackRumi = document.getElementById('feedbackRumi');
+
+            feedbackToast.classList.remove('hidden');
+
+            if (selected.correct) {
+                score += 10;
+                correctCount++;
+                playCorrectSound();
+
+                feedbackBox.className = "bg-emerald-500 text-white px-8 py-4 rounded-3xl shadow-2xl border-4 border-emerald-300 text-center animate-bounce";
+                feedbackJawi.textContent = selected.text;
+                feedbackRumi.textContent = "JAWAPAN BETUL! (+10)";
+
+                // Pop Floating Score Text
+                spawnFloatingText(`+10`, clickX, clickY, '#10b981');
+            } else {
+                score = Math.max(0, score - 5);
+                wrongCount++;
+                lives--;
+                playWrongSound();
+                updateLivesDisplay();
+
+                document.body.classList.add('shake-effect');
+                setTimeout(() => document.body.classList.remove('shake-effect'), 400);
+
+                feedbackBox.className = "bg-rose-500 text-white px-8 py-4 rounded-3xl shadow-2xl border-4 border-rose-300 text-center";
+                feedbackJawi.textContent = selected.text;
+                feedbackRumi.textContent = "JAWAPAN SALAH! (-5)";
+
+                spawnFloatingText(`-5`, clickX, clickY, '#ef4444');
+            }
+
+            document.getElementById('scoreTxt').textContent = score;
+
+            if (lives <= 0) {
+                setTimeout(() => {
+                    endGame("Nyawa Anda Telah Habis!");
+                }, 1200);
+                return;
+            }
+
+            // Next Question after delay
+            setTimeout(() => {
+                currentQIndex++;
+                loadQuestion(currentQIndex);
+            }, 1500);
+        }
+
+        function updateLivesDisplay() {
+            const container = document.getElementById('livesContainer');
+            let hearts = '';
+            for (let i = 0; i < 3; i++) {
+                hearts += i < lives ? '❤️' : '🖤';
+            }
+            container.textContent = hearts;
+        }
+
+        function endGame(reason) {
+            clearInterval(timerInterval);
+            playGameOverSound(lives > 0 && currentQIndex >= QUESTION_BANK.length);
+
+            const modal = document.getElementById('resultsModal');
+            document.getElementById('modalReason').textContent = reason;
+            document.getElementById('resScore').textContent = score;
+
+            const totalAnswered = correctCount + wrongCount;
+            const accuracy = totalAnswered > 0 ? Math.round((correctCount / totalAnswered) * 100) : 0;
+            document.getElementById('resAccuracy').textContent = `${accuracy}%`;
+            document.getElementById('resCorrect').textContent = `${correctCount}/10`;
+            document.getElementById('resWrong').textContent = wrongCount;
+
+            const titleEl = document.getElementById('modalTitle');
+            const encourageEl = document.getElementById('modalEncouragement');
+
+            if (lives > 0 && accuracy >= 70) {
+                titleEl.textContent = "TAHNIAH! EXCELLENT!";
+                titleEl.className = "text-3xl font-black text-emerald-600 mb-1";
+                encourageEl.textContent = "Syabas! Anda telah menguasai Imbuhan Awalan Jawi dengan sangat baik!";
+            } else {
+                titleEl.textContent = "PERMAINAN TAMAT";
+                titleEl.className = "text-3xl font-black text-amber-600 mb-1";
+                encourageEl.textContent = "Teruskan berusaha dan belajar imbuhan awalan Jawi lagi!";
+            }
+
+            modal.classList.remove('hidden');
+        }
+
+        function restartGame() {
+            currentQIndex = 0;
+            score = 0;
+            lives = 3;
+            correctCount = 0;
+            wrongCount = 0;
+            
+            document.getElementById('scoreTxt').textContent = "0";
+            updateLivesDisplay();
+            document.getElementById('resultsModal').classList.add('hidden');
+
+            startTimer();
+            loadQuestion(0);
+        }
+
+        /* ===================================================================
+           5. CANVAS PARTICLES & SLASH FX ENGINE
+           =================================================================== */
+        let fxCanvas, fxCtx;
+        let particles = [];
+        let slashLines = [];
+        let floatTexts = [];
+
+        function setupCanvas() {
+            fxCanvas = document.getElementById('fxCanvas');
+            fxCtx = fxCanvas.getContext('2d');
+            fxCanvas.width = window.innerWidth;
+            fxCanvas.height = window.innerHeight;
+
+            const webcamCanvas = document.getElementById('webcamCanvas');
+            webcamCanvas.width = window.innerWidth;
+            webcamCanvas.height = window.innerHeight;
+        }
+
+        function spawnConfetti(x, y, count) {
+            const colors = ['#f43f5e', '#3b82f6', '#eab308', '#10b981', '#a855f7', '#f97316'];
+            for (let i = 0; i < count; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: (Math.random() - 0.5) * 14,
+                    vy: (Math.random() - 0.5) * 14 - 3,
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    size: Math.random() * 8 + 4,
+                    life: 1.0,
+                    decay: Math.random() * 0.03 + 0.015
+                });
+            }
+        }
+
+        function createSlashEffect(x, y) {
+            slashLines.push({
+                x1: x - 60,
+                y1: y - 60,
+                x2: x + 60,
+                y2: y + 60,
+                alpha: 1.0
+            });
+        }
+
+        function spawnFloatingText(text, x, y, color) {
+            floatTexts.push({
+                text: text,
+                x: x,
+                y: y,
+                alpha: 1.0,
+                color: color
+            });
+        }
+
+        function renderFX() {
+            fxCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
+
+            // Render Confetti Particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.2; // gravity
+                p.life -= p.decay;
+
+                if (p.life <= 0) {
+                    particles.splice(i, 1);
+                    continue;
+                }
+
+                fxCtx.save();
+                fxCtx.globalAlpha = p.life;
+                fxCtx.fillStyle = p.color;
+                fxCtx.beginPath();
+                fxCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                fxCtx.fill();
+                fxCtx.restore();
+            }
+
+            // Render Slash Cut Lines
+            for (let i = slashLines.length - 1; i >= 0; i--) {
+                const s = slashLines[i];
+                s.alpha -= 0.08;
+
+                if (s.alpha <= 0) {
+                    slashLines.splice(i, 1);
+                    continue;
+                }
+
+                fxCtx.save();
+                fxCtx.globalAlpha = s.alpha;
+                fxCtx.strokeStyle = '#ffffff';
+                fxCtx.lineWidth = 6;
+                fxCtx.lineCap = 'round';
+                fxCtx.beginPath();
+                fxCtx.moveTo(s.x1, s.y1);
+                fxCtx.lineTo(s.x2, s.y2);
+                fxCtx.stroke();
+                fxCtx.restore();
+            }
+
+            // Render Floating Scores
+            for (let i = floatTexts.length - 1; i >= 0; i--) {
+                const ft = floatTexts[i];
+                ft.y -= 2;
+                ft.alpha -= 0.025;
+
+                if (ft.alpha <= 0) {
+                    floatTexts.splice(i, 1);
+                    continue;
+                }
+
+                fxCtx.save();
+                fxCtx.globalAlpha = ft.alpha;
+                fxCtx.font = '900 36px Fredoka, sans-serif';
+                fxCtx.fillStyle = ft.color;
+                fxCtx.shadowColor = 'rgba(0,0,0,0.5)';
+                fxCtx.shadowBlur = 6;
+                fxCtx.fillText(ft.text, ft.x, ft.y);
+                fxCtx.restore();
+            }
+
+            requestAnimationFrame(renderFX);
+        }
+
+        /* ===================================================================
+           6. MEDIAPIPE HANDS GESTURE CONTROL (MODE A)
+           =================================================================== */
+        function toggleCameraMode() {
+            if (!isCameraActive) {
+                initMediaPipeCamera();
+            } else {
+                stopCamera();
+            }
+        }
+
+        function initMediaPipeCamera() {
+            const btnTxt = document.getElementById('camBtnTxt');
+            btnTxt.textContent = "MEMUATKAN KAMERA...";
+
+            const videoElement = document.getElementById('webcamVideo');
+
+            hands = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
+
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.65,
+                minTrackingConfidence: 0.65
+            });
+
+            hands.onResults(onHandResults);
+
+            camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    await hands.send({ image: videoElement });
+                },
+                width: 640,
+                height: 480
+            });
+
+            camera.start()
+                .then(() => {
+                    isCameraActive = true;
+                    btnTxt.textContent = "MATIKAN KAMERA";
+                    document.getElementById('camStatus').textContent = "Mod Kamera/Pinch Aktif 🖐️";
+                    document.getElementById('camStatus').className = "text-xs bg-emerald-100 text-emerald-800 font-bold px-3 py-1.5 rounded-xl border border-emerald-300";
+                })
+                .catch((err) => {
+                    alert("Gagal mengakses kamera. Sila pastikan kebenaran kamera diberikan.");
+                    btnTxt.textContent = "AKTIFKAN KAMERA (MOD JARI)";
+                    isCameraActive = false;
+                });
+        }
+
+        function stopCamera() {
+            if (camera) {
+                camera.stop();
+            }
+            isCameraActive = false;
+            document.getElementById('camBtnTxt').textContent = "AKTIFKAN KAMERA (MOD JARI)";
+            document.getElementById('camStatus').textContent = "Mod Touch/Tetikus Aktif";
+            document.getElementById('camStatus').className = "text-xs bg-white/80 px-3 py-1.5 rounded-xl text-slate-600 font-semibold hidden md:inline-block";
+
+            // Clear camera cursor
+            const webcamCanvas = document.getElementById('webcamCanvas');
+            const ctx = webcamCanvas.getContext('2d');
+            ctx.clearRect(0, 0, webcamCanvas.width, webcamCanvas.height);
+        }
+
+        function onHandResults(results) {
+            const canvas = document.getElementById('webcamCanvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+                return;
+            }
+
+            const landmarks = results.multiHandLandmarks[0];
+            // Index Finger Tip = Landmark 8, Thumb Tip = Landmark 4
+            const indexTip = landmarks[8];
+            const thumbTip = landmarks[4];
+
+            // Mirror X coordinate for intuitive webcam control
+            const cursorX = (1 - indexTip.x) * canvas.width;
+            const cursorY = indexTip.y * canvas.height;
+
+            const thumbX = (1 - thumbTip.x) * canvas.width;
+            const thumbY = thumbTip.y * canvas.height;
+
+            // Distance for Pinch Detection
+            const dist = Math.hypot(cursorX - thumbX, cursorY - thumbY);
+            const isPinching = dist < 45; // threshold pixel distance
+
+            // Draw Pointer Cursor
+            ctx.save();
+            ctx.fillStyle = isPinching ? '#ef4444' : '#06b6d4';
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(cursorX, cursorY, isPinching ? 16 : 22, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            // Pinch Indicator Ring
+            if (isPinching) {
+                ctx.beginPath();
+                ctx.arc(cursorX, cursorY, 32, 0, Math.PI * 2);
+                ctx.strokeStyle = '#f59e0b';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
+            ctx.restore();
+
+            // Trigger Balloon Pop if Pinched over Balloon Target
+            const now = Date.now();
+            if (isPinching && (now - lastPinchTime > 600) && !isQuestionAnswered) {
+                for (let i = 0; i < 3; i++) {
+                    const btn = document.getElementById(`balloon${i}`);
+                    if (btn && btn.style.display !== 'none') {
+                        const rect = btn.getBoundingClientRect();
+                        if (
+                            cursorX >= rect.left &&
+                            cursorX <= rect.right &&
+                            cursorY >= rect.top &&
+                            cursorY <= rect.bottom
+                        ) {
+                            lastPinchTime = now;
+                            popBalloon(i);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>
